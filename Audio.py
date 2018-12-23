@@ -95,7 +95,6 @@ class GenerateAudio(Audio):
 
         self.tempo = 152
         self.sample_rate = 44100
-        self.dynamics = [0, 0, 0]  # current, end, rate
 
         pp = 0.05
         p = 0.1
@@ -103,12 +102,93 @@ class GenerateAudio(Audio):
         mf = 0.2
         f = 0.3
 
+        def wait(bars):
+            return [['dynamics', bars, 0, 0], ['a4', bars]]
+
         info1 = []
-        info1 += [['dynamics', 0.5]]
-        info1 += [['a4', 10]]
+        info2 = []
+        info3 = []
+
+        def notes2112(note):
+            return [[note, 1],
+                    [note, 0.5],
+                    [note, 0.5],
+                    [note, 1]]
+
+        chorus = [['bb5', 1],
+                  ['a5', 0.5],
+                  ['bb5', 0.5],
+                  ['g5', 1]]
+        upper_chorus = [['d6', 1],
+                        ['c6', 0.5],
+                        ['d6', 0.5],
+                        ['bb5', 1]]
+        g_scale = [['g5', 3],
+                   ['f5', 3],
+                   ['eb5', 3],
+                   ['d5', 3]]
+        e_scale = [['eb5', 3],
+                   ['d5', 3],
+                   ['c5', 3],
+                   ['g4', 3]]
+        # 1
+        info1 += [['vibrato', 5, 5]]
+        info1 += [['synth', 'sawtooth']]
+        info1 += [['dynamics', 3 * 2, mf, mf]]
+        info1 += 2 * chorus
+        info1 += [['dynamics', 3 * 2, pp, pp]]
+        info1 += 6 * chorus
+        info1 += [['dynamics', 3 * 4, p, p]]
+        info1 += 4 * chorus
+        info1 += [['dynamics', 3 * 4, mp, mp]]
+        info1 += 4 * chorus
+        info1 += [['dynamics', 3 * 4, mf, f]]
+        info1 += 4 * upper_chorus
+        # 21
+
+        # --------------------------------
+        info2 += wait(3 * 4)
+        info2 += [['vibrato', 5, 5]]
+        info2 += [['synth', 'triangle']]
+        info2 += [['dynamics', 3 * 4, pp, pp]]
+        info2 += g_scale
+
+        info2 += [['dynamics', 3 * 4, p, p]]
+        info2 += g_scale
+        info2 += [['dynamics', 3 * 4, mp, mp]]
+        for i in ['c5', 'd5', 'eb5', 'd5']:
+            info2 += notes2112(i)
+        info2 += [['dynamics', 3 * 4, mf, f]]
+        info2 += 4 * chorus
+        # -------------------------------
+        info3 += wait(3 * 8)
+        info3 += [['vibrato', 5, 5]]
+        info3 += [['synth', 'triangle']]
+        info3 += [['dynamics', 3 * 4, p, p]]
+        info3 += e_scale
+        info3 += [['dynamics', 3 * 4, mp, mp]]
+        for i in ['eb4', 'g4', 'c5', 'g4']:
+            info3 += notes2112(i)
+        info3 += [['dynamics', 3 * 4, mf, f]]
+        info3 += [['d5', 3],
+                  ['e5', 3],
+                  ['f5', 1],
+                  ['eb5', 1],
+                  ['d5', 1],
+                  ['g5', 0.5],
+                  ['f5', 0.5],
+                  ['eb5', 1],
+                  ['d5', 1]]
+        # ------------------------------
 
         data1 = self.generate_part(info1)
-        sf.write(new_file, data1, self.sample_rate)
+        data2 = self.generate_part(info2)
+        data3 = self.generate_part(info3)
+
+        length = min([len(data1), len(data2), len(data3)])
+        data = np.array(data1)[:length] + np.array(data2)[:length] + np.array(data3)[:length]
+
+        sf.write(new_file, data, self.sample_rate)
 
     @staticmethod
     def square(t):
@@ -142,7 +222,11 @@ class GenerateAudio(Audio):
         # or ['dynamics',beats,amp_i,amp_f]
         # or ['synth',synth_name]
         # notevalue : # notes/beat
+
         self.synth = self.sine
+        self.vibrato = [0, 0]  # rate, amplitude
+        self.dynamics = [0, 0, 0]  # current, end, rate
+
         data = []
         for note in notes_info:
             if note[0] == 'dynamics':
@@ -165,11 +249,13 @@ class GenerateAudio(Audio):
                     self.synth = self.sine
                 elif note[1] == 'triangle':
                     self.synth = self.triangle
+            elif note[0] == 'vibrato':
+                self.vibrato = note[1:]
             else:
                 data += self.generate_note(note[0], 60 * note[1] / self.tempo)
         return data
 
-    def generate_note(self, note, T, staccato=False):
+    def generate_note(self, note, T):
         # T is seconds of note
         # t = 1 is one period
 
@@ -183,9 +269,8 @@ class GenerateAudio(Audio):
             return 0
 
         data = [0] * int(T * self.sample_rate)
-        vibrato_rate = 5
         for t in range(int(T * self.sample_rate)):
-            data[t] = int(self.dynamics[0] * 2147483647 * self.synth(f * (t + 10* np.sin(2 * np.pi * t * vibrato_rate/self.sample_rate)) / self.sample_rate))
+            data[t] = int(self.dynamics[0] * 2147483647 * self.synth(f * (t + self.vibrato[1] * np.sin(2 * np.pi * t * self.vibrato[0] / self.sample_rate)) / self.sample_rate))
             # dynamics - dynamics_f < 0 if crescendo
             if (self.dynamics[0] - self.dynamics[1]) * sign(self.dynamics[2]) < 0:
                 self.dynamics[0] += self.dynamics[2] * self.tempo / (60 * self.sample_rate)
@@ -194,5 +279,5 @@ class GenerateAudio(Audio):
 
 if __name__ == '__main__':
     freeze_support()  # required for multiprocessing
-    GenerateAudio('test_audio.wav')
-    PlayAudio('test_audio.wav')
+    GenerateAudio('audio.wav')
+    PlayAudio('audio.wav')
